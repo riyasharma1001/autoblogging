@@ -1,5 +1,5 @@
 // pages/admin/register.js
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import {
   Box,
@@ -17,9 +17,6 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Stepper,
-  Step,
-  StepLabel
 } from "@mui/material";
 import KeyIcon from '@mui/icons-material/Key';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -28,6 +25,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 export default function RegisterPage() {
   const router = useRouter();
   const [isVerified, setIsVerified] = useState(false);
+  const [adminExists, setAdminExists] = useState(true);
   const [formData, setFormData] = useState({
     username: "",
     password: "",
@@ -35,10 +33,32 @@ export default function RegisterPage() {
     verificationUsername: "",
     verificationPassword: ""
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [recoveryPhrases, setRecoveryPhrases] = useState([]);
+
+  // Check if any admin exists when component mounts
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        const res = await fetch("/api/auth/check-admin");
+        const data = await res.json();
+        
+        if (!data.hasAdmin) {
+          setIsVerified(true); // Skip verification if no admin exists
+          setAdminExists(false);
+        }
+        
+      } catch (err) {
+        console.error("Error checking admin:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAdmin();
+  }, []);
 
   // Handle verification step
   const handleVerify = async (e) => {
@@ -81,17 +101,23 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      const registrationData = {
+        username: formData.username,
+        password: formData.password,
+      };
+
+      // Only include verification credentials if admin exists
+      if (adminExists) {
+        registrationData.verificationCreds = {
+          username: formData.verificationUsername,
+          password: formData.verificationPassword
+        };
+      }
+
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: formData.username,
-          password: formData.password,
-          verificationCreds: {
-            username: formData.verificationUsername,
-            password: formData.verificationPassword
-          }
-        }),
+        body: JSON.stringify(registrationData),
       });
 
       const data = await res.json();
@@ -107,12 +133,15 @@ export default function RegisterPage() {
     }
   };
 
-  const handleCopyPhrases = () => {
-    const phrasesText = recoveryPhrases.map((phrase, i) => 
-      `${i + 1}. ${phrase}`
-    ).join('\n');
-    navigator.clipboard.writeText(phrasesText);
-  };
+  if (loading) {
+    return (
+      <Box sx={{ py: 4, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+        <Container maxWidth="sm">
+          <Typography>Loading...</Typography>
+        </Container>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ py: 4, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
@@ -129,10 +158,11 @@ export default function RegisterPage() {
               mb: 4
             }}
           >
-            {isVerified ? "Register New Admin" : "Verify Existing Admin"}
+            {!adminExists ? "Register First Admin" : 
+             isVerified ? "Register New Admin" : "Verify Existing Admin"}
           </Typography>
 
-          {!isVerified ? (
+          {(!isVerified && adminExists) ? (
             // Verification Form
             <Box component="form" onSubmit={handleVerify}>
               <TextField
@@ -171,6 +201,11 @@ export default function RegisterPage() {
           ) : (
             // Registration Form
             <Box component="form" onSubmit={handleRegister}>
+              {!adminExists && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                  You are registering the first admin account for this system.
+                </Alert>
+              )}
               <TextField
                 fullWidth
                 label="New Admin Username"
@@ -213,7 +248,7 @@ export default function RegisterPage() {
                 sx={{ mt: 3 }}
                 disabled={loading}
               >
-                {loading ? "Registering..." : "Register New Admin"}
+                {loading ? "Registering..." : "Register Admin"}
               </Button>
             </Box>
           )}
@@ -225,7 +260,7 @@ export default function RegisterPage() {
           )}
         </Paper>
 
-        {/* Recovery Phrases Dialog */}
+        {/* Recovery Phrases Dialog remains unchanged */}
         <Dialog 
           open={showSuccess} 
           maxWidth="sm" 
