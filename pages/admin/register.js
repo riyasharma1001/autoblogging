@@ -17,6 +17,9 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  Stepper,
+  Step,
+  StepLabel
 } from "@mui/material";
 import KeyIcon from '@mui/icons-material/Key';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -24,8 +27,8 @@ import WarningIcon from '@mui/icons-material/Warning';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [isFirstAdmin, setIsFirstAdmin] = useState(true); // New state
   const [isVerified, setIsVerified] = useState(false);
-  const [adminExists, setAdminExists] = useState(true);
   const [formData, setFormData] = useState({
     username: "",
     password: "",
@@ -33,31 +36,34 @@ export default function RegisterPage() {
     verificationUsername: "",
     verificationPassword: ""
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [recoveryPhrases, setRecoveryPhrases] = useState([]);
 
-  // Check if any admin exists when component mounts
+  // Add check for existing admins on page load
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkAdmins = async () => {
       try {
-        const res = await fetch("/api/auth/check-admin");
+        const res = await fetch("/api/auth/check-admins");
         const data = await res.json();
         
-        if (!data.hasAdmin) {
-          setIsVerified(true); // Skip verification if no admin exists
-          setAdminExists(false);
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to check admins");
         }
+
+        const hasAdmins = data.count > 0;
+        setIsFirstAdmin(!hasAdmins);
+        setIsVerified(!hasAdmins); // Only set verified if no admins exist
         
-      } catch (err) {
-        console.error("Error checking admin:", err);
-      } finally {
-        setLoading(false);
+        console.log("Admin check:", { count: data.count, isFirstAdmin: !hasAdmins });
+      } catch (error) {
+        console.error("Error checking admins:", error);
+        setError("Failed to check admin status");
       }
     };
 
-    checkAdmin();
+    checkAdmins();
   }, []);
 
   // Handle verification step
@@ -88,7 +94,7 @@ export default function RegisterPage() {
     }
   };
 
-  // Handle registration
+  // Modify registration handler
   const handleRegister = async (e) => {
     e.preventDefault();
     setError("");
@@ -101,14 +107,14 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const registrationData = {
+      const requestBody = {
         username: formData.username,
-        password: formData.password,
+        password: formData.password
       };
 
-      // Only include verification credentials if admin exists
-      if (adminExists) {
-        registrationData.verificationCreds = {
+      // Only add verification creds if not first admin
+      if (!isFirstAdmin) {
+        requestBody.verificationCreds = {
           username: formData.verificationUsername,
           password: formData.verificationPassword
         };
@@ -117,7 +123,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registrationData),
+        body: JSON.stringify(requestBody)
       });
 
       const data = await res.json();
@@ -126,6 +132,7 @@ export default function RegisterPage() {
       
       setRecoveryPhrases(data.recoveryPhrases);
       setShowSuccess(true);
+      
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -133,15 +140,12 @@ export default function RegisterPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ py: 4, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
-        <Container maxWidth="sm">
-          <Typography>Loading...</Typography>
-        </Container>
-      </Box>
-    );
-  }
+  const handleCopyPhrases = () => {
+    const phrasesText = recoveryPhrases.map((phrase, i) => 
+      `${i + 1}. ${phrase}`
+    ).join('\n');
+    navigator.clipboard.writeText(phrasesText);
+  };
 
   return (
     <Box sx={{ py: 4, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
@@ -158,12 +162,11 @@ export default function RegisterPage() {
               mb: 4
             }}
           >
-            {!adminExists ? "Register First Admin" : 
-             isVerified ? "Register New Admin" : "Verify Existing Admin"}
+            {isVerified ? "Register New Admin" : "Verify Existing Admin"}
           </Typography>
 
-          {(!isVerified && adminExists) ? (
-            // Verification Form
+          {/* Show verification form only if not first admin */}
+          {!isFirstAdmin && !isVerified ? (
             <Box component="form" onSubmit={handleVerify}>
               <TextField
                 fullWidth
@@ -201,11 +204,6 @@ export default function RegisterPage() {
           ) : (
             // Registration Form
             <Box component="form" onSubmit={handleRegister}>
-              {!adminExists && (
-                <Alert severity="info" sx={{ mb: 3 }}>
-                  You are registering the first admin account for this system.
-                </Alert>
-              )}
               <TextField
                 fullWidth
                 label="New Admin Username"
@@ -248,7 +246,7 @@ export default function RegisterPage() {
                 sx={{ mt: 3 }}
                 disabled={loading}
               >
-                {loading ? "Registering..." : "Register Admin"}
+                {loading ? "Registering..." : "Register New Admin"}
               </Button>
             </Box>
           )}
@@ -260,7 +258,7 @@ export default function RegisterPage() {
           )}
         </Paper>
 
-        {/* Recovery Phrases Dialog remains unchanged */}
+        {/* Recovery Phrases Dialog */}
         <Dialog 
           open={showSuccess} 
           maxWidth="sm" 
